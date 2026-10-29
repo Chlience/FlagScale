@@ -71,7 +71,6 @@ from .log_handler import CustomHandler
 ######### FlagScale Begin #########
 import json
 import socket
-from .profiler_reports import export_kernel_reports
 ######### FlagScale Begin #########
 
 # Make default logging level INFO, but filter out all log messages not from MCore.
@@ -1851,9 +1850,9 @@ def pretrain(
     if wandb_writer:
         wandb_writer.finish()
 
-    ft_integration.on_checkpointing_start()
+    ft_integration.on_checkpointing_start(is_async_finalization=True, blocking=True)
     maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    ft_integration.on_checkpointing_end(is_async_finalization=True, blocking=True)
 
     one_logger and one_logger.log_metrics(
         {'app_finish_time': one_logger_utils.get_timestamp_in_ms()}
@@ -3916,16 +3915,6 @@ def train(
             profile_dir = Path(f"{args.tensorboard_dir}/../torch_profile")
             profile_dir.mkdir(parents=True, exist_ok=True)
             p.export_chrome_trace(f"{profile_dir}/rank-{torch.distributed.get_rank()}.json.gz")
-
-            ########## FlagScale Begin ##########
-            kernel_details_path, kernel_summary_path, operator_list_path = export_kernel_reports(
-                p.events(), profile_dir, rank, f"{profile_dir}/rank-{torch.distributed.get_rank()}.json.gz"
-            )
-            print(f"[CUDA] kernel details report is saved to: {kernel_details_path}")
-            print(f"[CUDA] kernel summary report is saved to: {kernel_summary_path}")
-            print(f"[CUDA] operator list is saved to: {operator_list_path}")
-            ########## FlagScale Begin ##########
-
         prof = torch.profiler.profile(
             schedule=torch.profiler.schedule(
                 wait=max(args.profile_step_start - 1, 0),
@@ -4019,9 +4008,9 @@ def train(
                     nsys_nvtx_context = torch.autograd.profiler.emit_nvtx(record_shapes=args.record_shapes)
                     nsys_nvtx_context.__enter__()
 
-            ft_integration.on_checkpointing_start()
+            ft_integration.on_checkpointing_start(is_async_finalization=True, blocking=False)
             maybe_finalize_async_save(blocking=False)
-            ft_integration.on_checkpointing_end(is_async_finalization=True)
+            ft_integration.on_checkpointing_end(is_async_finalization=True, blocking=False)
             # Update the timeout for all process groups after initialization
             # We update the timeout after the first successful iteration,
             # which takes longer than others usually
@@ -4523,11 +4512,11 @@ def train(
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
 
-    ft_integration.on_checkpointing_start()
+    ft_integration.on_checkpointing_start(is_async_finalization=True, blocking=True)
     # This will finalize all unfinalized async request and terminate
     # a persistent async worker if persistent ckpt worker is enabled
     maybe_finalize_async_save(blocking=True, terminate=True)
-    ft_integration.on_checkpointing_end(is_async_finalization=True)
+    ft_integration.on_checkpointing_end(is_async_finalization=True, blocking=True)
 
     if args.log_energy:
         energy_monitor.lap()
